@@ -44,7 +44,9 @@
     defined(RB_NEXT) &&		\
     defined(RB_REMOVE) &&	\
     !defined(__CYGWIN__)
+#ifndef __QNXNTO__
 #define HAVE_RB_TREE
+#endif
 #endif
 
 /* BSD splay tree */
@@ -58,7 +60,9 @@
     defined(SPLAY_MIN) &&	\
     defined(SPLAY_NEXT) &&	\
     defined(SPLAY_REMOVE)
+#ifndef __QNXNTO__
 #define HAVE_SPLAY_TREE
+#endif
 #endif
 
 #define MIN_TREE_SIZE		(1000)

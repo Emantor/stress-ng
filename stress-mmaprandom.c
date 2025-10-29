@@ -64,7 +64,9 @@
     defined(RB_NEXT) &&		\
     defined(RB_REMOVE) &&	\
     !defined(__CYGWIN__)
+#ifndef __QNXNTO__
 #define HAVE_RB_TREE
+#endif
 #endif
 
 #define MMAP_RANDOM_MAX_MAPPINGS_SHIFT	(16)

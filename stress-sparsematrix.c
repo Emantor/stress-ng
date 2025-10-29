@@ -76,7 +76,9 @@
     defined(SPLAY_MIN) &&	\
     defined(SPLAY_NEXT) &&	\
     defined(SPLAY_REMOVE)
+#ifndef __QNXNTO__
 #define HAVE_SPLAY_TREE
+#endif
 #endif
 
 #if defined(HAVE_JUDY_H) && 	\
