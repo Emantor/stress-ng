@@ -200,7 +200,7 @@ To perform a cross-compile for qnx, for example, a aarch64 qnx cross build:
 
 ```
     make clean
-    CC=aarch64-unknown-nto-qnx7.1.0-gcc CXX=aarch64-unknown-nto-qnx7.1.0-g++ STATIC=1 make
+    CC=aarch64-unknown-nto-qnx8.0.0-gcc CXX=aarch64-unknown-nto-qnx8.0.0-g++ make
 ```
 
 To generate a PDF version of the manual (requires ps2pdf to be installed)
