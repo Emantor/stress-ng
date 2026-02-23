@@ -21,11 +21,16 @@
 #include "core-attribute.h"
 #include "core-affinity.h"
 #include "core-builtin.h"
+#include "core-bitops.h"
 
 #include <ctype.h>
 #include <sched.h>
 #include <sys/types.h>
 #include <dirent.h>
+
+#if defined(__QNXNTO__)
+#include <sys/neutrino.h>
+#endif
 
 static const char option[] = "taskset";
 
@@ -362,6 +367,200 @@ int stress_affinity_change_cpu(stress_args_t *args, const int old_cpu)
 		return moved_cpu;
 	}
 	return (int)from_cpu;
+}
+
+#elif defined(__QNX__) && __QNX__ >= 800
+
+unsigned int stress_affinity_cpu_set_val;
+
+static void stress_check_cpu_affinity_range(
+	const int32_t max_cpus,
+	const int32_t cpu)
+{
+	if ((cpu < 0) || ((max_cpus != -1) && (cpu >= max_cpus))) {
+		(void)fprintf(stderr, "%s: invalid range, %" PRId32 " is not allowed, "
+			"allowed range: 0 to %" PRId32 "\n", option,
+			cpu, max_cpus - 1);
+		_exit(EXIT_FAILURE);
+	}
+}
+
+static int stress_parse_cpu(const char *const str)
+{
+	int val;
+
+	if (sscanf(str, "%d", &val) != 1) {
+		(void)fprintf(stderr, "%s: invalid number '%s'\n", option, str);
+		_exit(EXIT_FAILURE);
+	}
+	return val;
+}
+
+static void stress_set_cpu_affinity_current(unsigned int *set)
+{
+	if (ThreadCtl (_NTO_TCTL_RUNMASK, (void *)set) >= 0) {
+		pr_err("%s: cannot set CPU affinity, errno=%d (%s)\n",
+			option, errno, strerror(errno));
+		_exit(EXIT_FAILURE);
+	}
+	(void)shim_memcpy(&stress_affinity_cpu_set_val, set, sizeof(stress_affinity_cpu_set_val));
+}
+
+int stress_affinity_parse_cpu(const char *arg, unsigned int *set, int *setbits)
+{
+	char *str, *ptr, *token;
+	const int32_t max_cpus = stress_cpus_configured_get();
+	int i;
+    unsigned int mask;
+
+	*setbits = 0;
+    *set = 0;
+
+	str = stress_const_optdup(arg);
+	if (!str) {
+		(void)fprintf(stderr, "out of memory duplicating argument '%s'\n", arg);
+		_exit(EXIT_FAILURE);
+	}
+
+	for (ptr = str; (token = strtok(ptr, ",")) != NULL; ptr = NULL) {
+		int lo, hi;
+		const char *tmpptr = strstr(token, "-");
+
+		if (!strcmp(token, "odd")) {
+			for (i = 1; i < max_cpus; i += 2) {
+                mask = 1 << i;
+				if (!(mask & *set)) {
+					*set |= mask;
+					(*setbits)++;
+				}
+			}
+			continue;
+		} else if (!strcmp(token, "even")) {
+			for (i = 0; i < max_cpus; i += 2) {
+                mask = 1 << i;
+				if (!(mask & *set)) {
+					*set |= mask;
+					(*setbits)++;
+				}
+			}
+			continue;
+		} else if (!strcmp(token, "all")) {
+			for (i = 0; i < max_cpus; i++) {
+                mask = 1 << i;
+				if (!(mask & *set)) {
+					*set |= mask;
+					(*setbits)++;
+				}
+			}
+			continue;
+		} else if (!strcmp(token, "random")) {
+			for (i = 0; i < max_cpus; i++) {
+                mask = 1 << i;
+				if (stress_mwc1()) {
+                    if (!(mask & *set)) {
+                        *set |= mask;
+						(*setbits)++;
+					}
+				}
+			}
+			if (*setbits == 0) {
+				i = stress_mwc32modn((uint32_t)max_cpus);
+
+                mask = 1 << i;
+                if (!(mask & *set)) {
+                    *set |= mask;
+					(*setbits)++;
+				}
+			}
+			continue;
+		} 
+
+		hi = lo = stress_parse_cpu(token);
+		if (tmpptr) {
+			tmpptr++;
+			if (*tmpptr)
+				hi = stress_parse_cpu(tmpptr);
+			else {
+				(void)fprintf(stderr, "%s: expecting number following "
+					"'-' in '%s'\n", option, token);
+				free(str);
+				_exit(EXIT_FAILURE);
+			}
+			if (hi < lo) {
+				(void)fprintf(stderr, "%s: invalid range in '%s' "
+					"(end value must be larger than "
+					"start value)\n", option, token);
+				free(str);
+				_exit(EXIT_FAILURE);
+			}
+		}
+		stress_check_cpu_affinity_range(max_cpus, lo);
+		stress_check_cpu_affinity_range(max_cpus, hi);
+
+		for (i = lo; i <= hi; i++) {
+            mask = 1 << i;
+			if (!(mask & *set)) {
+				*set |= mask;
+				(*setbits)++;
+			}
+		}
+	}
+	free(str);
+
+	if (*setbits)
+		stress_set_cpu_affinity_current(set);
+
+	return 0;
+}
+
+int stress_affinity_change_cpu(stress_args_t *args, const int old_cpu)
+{
+	int from_cpu;
+
+	unsigned int mask = 0;
+	(void)args;
+
+	/* only change cpu when --change-cpu is enabled */
+	if ((g_opt_flags & OPT_FLAGS_CHANGE_CPU) == 0)
+		return old_cpu;
+
+	if (stress_affinity_cpu_set_val == 0) {
+		if (ThreadCtl (_NTO_TCTL_RUNMASK_GET_AND_SET, (void *)&mask))
+			return old_cpu;		/* no dice */
+	} else {
+		shim_memcpy(&mask, &stress_affinity_cpu_set_val, sizeof(mask));
+	}
+
+	if (old_cpu < 0) {
+		from_cpu = (int)stress_cpu_get();
+	} else {
+		from_cpu = old_cpu;
+
+		/* Try hard not to use the CPU we came from */
+		if (stress_bitops_popcount64(mask) > 1)
+			mask &= ~from_cpu;
+	}
+
+	if (ThreadCtl (_NTO_TCTL_RUNMASK, (void *)&mask) >= 0) {
+		const int moved_cpu = (int)stress_cpu_get();
+		/*
+		pr_dbg("%s: process [%" PRIdMAX "] (child of instance %d on CPU %u moved to CPU %u)\n",
+			args->name, (intmax_t)getpid(), args->instance, from_cpu, moved_cpu);
+		*/
+		return moved_cpu;
+	}
+	return (int)from_cpu;
+}
+
+int stress_affinity_cpu_set(const char *arg)
+{
+	unsigned int set;
+	int setbits, ret;
+
+	ret = stress_affinity_parse_cpu(arg, &set, &setbits);
+	if ((ret == 0) && (setbits))
+		stress_set_cpu_affinity_current(&set);
+	return ret;
 }
 
 #else

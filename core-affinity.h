@@ -26,6 +26,8 @@ extern int stress_affinity_change_cpu(stress_args_t *args, const int old_cpu);
 
 #if defined(HAVE_CPU_SET_T)
 extern int stress_affinity_parse_cpu(const char *arg, cpu_set_t *set, int *setbits);
+#elif defined(__QNXNTO__)
+extern int stress_affinity_parse_cpu(const char *arg, unsigned int *set, int *setbits);
 #endif
 
 extern WARN_UNUSED uint32_t stress_affinity_cpus_get(uint32_t **cpus, const bool use_affinity);

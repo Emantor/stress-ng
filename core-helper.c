@@ -68,6 +68,10 @@
 int __dso_handle;
 #endif
 
+#if defined(__QNXNTO__)
+#include <sys/neutrino.h>
+#endif
+
 #define PAGE_4K_SHIFT			(12)
 #define PAGE_4K				(1 << PAGE_4K_SHIFT)
 
@@ -891,6 +895,11 @@ unsigned int stress_cpu_get(void)
 
 	return (unsigned int)((cpu < 0) ? 0 : cpu);
 #endif
+#elif defined(__QNX__) && __QNX__ >= 800
+	unsigned int cpu = 0;
+	if (ThreadCtl (_NTO_TCTL_RUNMASK_GET_AND_SET, (void *)&cpu))
+		return 0;
+    return cpu;
 #else
 	unsigned int cpu, node;
 
